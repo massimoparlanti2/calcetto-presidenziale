@@ -1,49 +1,48 @@
 import { useState, useEffect, useRef } from "react";
+import { initializeApp, getApps } from "firebase/app";
+import { getDatabase, ref, get, set } from "firebase/database";
 
-// ─── DB ───────────────────────────────────────────────────────────────────────
-// ── Firebase config ───────────────────────────────────────────────────────
-// Per usare Firebase (necessario per GitHub Pages):
-// 1. Vai su https://console.firebase.google.com
-// 2. Crea un progetto → Realtime Database → Inizia in modalità test
-// 3. Copia la tua config qui sotto e decommenta le righe
-const firebaseConfig = {
+// ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
+const FIREBASE_CONFIG = {
   apiKey: "AIzaSyCQLf8iMLBX50zV7yoSbi3Zb_Yf_5Cw-oQ",
   authDomain: "calcetto-presidenziale.firebaseapp.com",
   projectId: "calcetto-presidenziale",
   storageBucket: "calcetto-presidenziale.firebasestorage.app",
   messagingSenderId: "851510214104",
   appId: "1:851510214104:web:5dab0a947ad0d999a146ad",
-  measurementId: "G-YQXM8RNEHV"
+  measurementId: "G-YQXM8RNEHV",
+  // Realtime Database URL (formato standard per progetti europei o default)
+  databaseURL: "https://calcetto-presidenziale-default-rtdb.europe-west1.firebasedatabase.app",
 };
 
-// ── Storage layer: Claude artifact → window.storage | GitHub Pages → localStorage
-const DB = (() => {
-  // Firebase mode (uncomment FIREBASE_CONFIG above to enable)
-  // if (typeof FIREBASE_CONFIG !== "undefined") { ... }
+// Inizializza Firebase una sola volta (evita errori in hot-reload)
+const firebaseApp = getApps().length === 0 ? initializeApp(FIREBASE_CONFIG) : getApps()[0];
+const firebaseDB = getDatabase(firebaseApp);
 
-  // Claude artifact mode
-  if (typeof window !== "undefined" && window.storage) {
-    return {
-      async get(key, fb = null) {
-        try { const r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : fb; }
-        catch { return fb; }
-      },
-      async set(key, val) {
-        try { await window.storage.set(key, JSON.stringify(val), true); } catch {}
-      },
-    };
-  }
-
-  // localStorage fallback (GitHub Pages, non condiviso tra dispositivi senza Firebase)
-  return {
-    async get(key, fb = null) {
-      try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fb; } catch { return fb; }
-    },
-    async set(key, val) {
+// ─── DB LAYER ─────────────────────────────────────────────────────────────────
+// Firebase Realtime Database come storage primario.
+// Fallback su localStorage se Firebase non è raggiungibile.
+const DB = {
+  async get(key, fallback = null) {
+    try {
+      const snapshot = await get(ref(firebaseDB, key));
+      return snapshot.exists() ? snapshot.val() : fallback;
+    } catch (err) {
+      console.warn(`[DB.get] Firebase error per "${key}", uso localStorage:`, err.message);
+      try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+    }
+  },
+  async set(key, val) {
+    try {
+      await set(ref(firebaseDB, key), val);
+      // Salva anche in localStorage come cache offline
       try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
-    },
-  };
-})();
+    } catch (err) {
+      console.warn(`[DB.set] Firebase error per "${key}", scrivo solo localStorage:`, err.message);
+      try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+    }
+  },
+};
 
 // ABBA draft: turn % 4 → [A,B,B,A]
 const abbaOwner = (t) => [0, 1, 1, 0][t % 4];
@@ -69,20 +68,31 @@ const SC = { scheduled: "#7a9e5a", draft: "#ffd54f", ready: "#4fc3f7", voting: "
 export default function App() {
   const [players, setPlayers] = useState([]);
   const [matches, setMatches] = useState([]);
+  const matchesRef = useRef([]);  // FIX: ref sempre aggiornato per evitare stale closures
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("home");
 
   const refresh = async () => {
     const [p, m] = await Promise.all([DB.get("cp_players", []), DB.get("cp_matches", [])]);
-    setPlayers(p); setMatches(m);
+    setPlayers(p);
+    setMatches(m);
+    matchesRef.current = m;
   };
 
   useEffect(() => { refresh().then(() => setLoading(false)); }, []);
 
   const savePlayers = async (p) => { await DB.set("cp_players", p); setPlayers(p); };
-  // saveMatches: write to DB + update state directly (avoids race condition with refresh)
-  const saveMatches = async (m) => { await DB.set("cp_matches", m); setMatches(m); };
+
+  // FIX: saveMatches aggiorna anche il ref in modo che i figli abbiano sempre i dati freschi
+  const saveMatches = async (m) => {
+    matchesRef.current = m;
+    await DB.set("cp_matches", m);
+    setMatches(m);
+  };
+
+  // FIX: getMatches legge sempre dal ref (mai stale), usato dai componenti figli
+  const getMatches = () => matchesRef.current;
 
   if (loading) return <Loader />;
   if (!user) return <Login players={players} onLogin={setUser} />;
@@ -92,11 +102,11 @@ export default function App() {
       <style>{CSS}</style>
       <Header user={user} onLogout={() => { setUser(null); setTab("home"); }} />
       <main style={S.main}>
-        {tab === "home"    && <Home    players={players} matches={matches} user={user} saveMatches={saveMatches} refresh={refresh} setTab={setTab} />}
+        {tab === "home"    && <Home    players={players} matches={matches} getMatches={getMatches} user={user} saveMatches={saveMatches} refresh={refresh} setTab={setTab} />}
         {tab === "rank"    && <Rank    players={players} matches={matches} />}
-        {tab === "games"   && <Games   players={players} matches={matches} user={user} saveMatches={saveMatches} refresh={refresh} setTab={setTab} />}
+        {tab === "games"   && <Games   players={players} matches={matches} getMatches={getMatches} user={user} saveMatches={saveMatches} refresh={refresh} setTab={setTab} />}
         {tab === "players" && <Players players={players} savePlayers={savePlayers} user={user} />}
-        {tab === "history" && <History players={players} matches={matches} user={user} saveMatches={saveMatches} refresh={refresh} />}
+        {tab === "history" && <History players={players} matches={matches} getMatches={getMatches} user={user} saveMatches={saveMatches} refresh={refresh} />}
       </main>
       <Nav tab={tab} setTab={setTab} />
     </div>
@@ -187,7 +197,7 @@ function Header({ user, onLogout }) {
 }
 
 // ─── HOME ──────────────────────────────────────────────────────────────────────
-function Home({ players, matches, user, saveMatches, refresh, setTab }) {
+function Home({ players, matches, getMatches, user, saveMatches, refresh, setTab }) {
   const pn = id => players.find(p => p.id === id)?.name || "?";
   const upcoming = [...matches].filter(m => ["scheduled","draft","ready"].includes(m.status)).sort((a,b) => new Date(a.scheduledDate)-new Date(b.scheduledDate))[0];
   const voting = matches.find(m => m.status === "voting");
@@ -195,8 +205,8 @@ function Home({ players, matches, user, saveMatches, refresh, setTab }) {
 
   return (
     <div style={S.page}>
-      {upcoming && <UpcomingCard match={upcoming} pn={pn} user={user} players={players} matches={matches} saveMatches={saveMatches} refresh={refresh} />}
-      {voting   && <VotingCard   match={voting}   pn={pn} user={user} players={players} matches={matches} saveMatches={saveMatches} refresh={refresh} />}
+      {upcoming && <UpcomingCard match={upcoming} pn={pn} user={user} players={players} matches={matches} getMatches={getMatches} saveMatches={saveMatches} refresh={refresh} />}
+      {voting   && <VotingCard   match={voting}   pn={pn} user={user} players={players} matches={matches} getMatches={getMatches} saveMatches={saveMatches} refresh={refresh} />}
       {!upcoming && !voting && (
         <div style={{ textAlign: "center", padding: "50px 16px" }}>
           <div style={{ fontSize: 52 }}>⚽</div>
@@ -222,17 +232,19 @@ function Home({ players, matches, user, saveMatches, refresh, setTab }) {
 }
 
 // ─── UPCOMING CARD ─────────────────────────────────────────────────────────────
-function UpcomingCard({ match, pn, user, players, matches, saveMatches, refresh }) {
+function UpcomingCard({ match, pn, user, players, matches, getMatches, saveMatches, refresh }) {
   const [scoreForm, setScoreForm] = useState(false);
   const [s1, setS1] = useState(0); const [s2, setS2] = useState(0);
   const cd = useCountdown(match.scheduledDate);
 
   const startDraft = async () => {
-    await saveMatches(matches.map(m => m.id === match.id ? { ...m, status: "draft", draftTurn: 0 } : m));
+    const current = getMatches();  // FIX: legge il ref aggiornato
+    await saveMatches(current.map(m => m.id === match.id ? { ...m, status: "draft", draftTurn: 0 } : m));
   };
 
   const openVoting = async () => {
-    await saveMatches(matches.map(m => m.id === match.id ? { ...m, status: "voting", score1: s1, score2: s2 } : m));
+    const current = getMatches();  // FIX: legge il ref aggiornato
+    await saveMatches(current.map(m => m.id === match.id ? { ...m, status: "voting", score1: s1, score2: s2 } : m));
   };
 
   return (
@@ -261,7 +273,7 @@ function UpcomingCard({ match, pn, user, players, matches, saveMatches, refresh 
           <MiniTeam color="#ff8a65" name={pn(match.cap2)} members={match.team2.map(pn)} />
         </div>
       )}
-      {match.status === "draft" && <DraftPanel match={match} players={players} pn={pn} user={user} matches={matches} saveMatches={saveMatches} refresh={refresh} />}
+      {match.status === "draft" && <DraftPanel match={match} players={players} pn={pn} user={user} matches={matches} getMatches={getMatches} saveMatches={saveMatches} refresh={refresh} />}
       {user.isAdmin && match.status === "scheduled" && (
         <button style={{ ...S.btnGreen, width: "100%", marginTop: 12 }} onClick={startDraft}>🏀 Inizia Draft ABBA</button>
       )}
@@ -298,7 +310,7 @@ function ScoreInput({ label, color, val, set }) {
 }
 
 // ─── DRAFT PANEL ───────────────────────────────────────────────────────────────
-function DraftPanel({ match, players, pn, user, matches, saveMatches, refresh }) {
+function DraftPanel({ match, players, pn, user, matches, getMatches, saveMatches, refresh }) {
   const [lm, setLm] = useState(match);
   useEffect(() => setLm(match), [JSON.stringify(match)]);
 
@@ -316,11 +328,13 @@ function DraftPanel({ match, players, pn, user, matches, saveMatches, refresh })
     const t2 = ownIdx === 1 ? [...lm.team2, pid] : lm.team2;
     const next = { ...lm, team1: t1, team2: t2, draftTurn: turn + 1 };
     setLm(next);
-    await saveMatches(matches.map(m => m.id === lm.id ? next : m));
+    const current = getMatches();  // FIX: legge il ref aggiornato
+    await saveMatches(current.map(m => m.id === lm.id ? next : m));
   };
 
   const done = async () => {
-    await saveMatches(matches.map(m => m.id === lm.id ? { ...m, status: "ready" } : m));
+    const current = getMatches();  // FIX: legge il ref aggiornato
+    await saveMatches(current.map(m => m.id === lm.id ? { ...m, status: "ready" } : m));
   };
 
   const nxt = [turn,turn+1,turn+2,turn+3].map(t => abbaOwner(t)===0?"A":"B").join("→");
@@ -365,7 +379,7 @@ function DraftPanel({ match, players, pn, user, matches, saveMatches, refresh })
 }
 
 // ─── VOTING CARD ───────────────────────────────────────────────────────────────
-function VotingCard({ match, pn, user, players, matches, saveMatches, refresh }) {
+function VotingCard({ match, pn, user, players, matches, getMatches, saveMatches, refresh }) {
   // Each player submits: own goals, own assists, + votes for all others
   // Admin just closes voting
   const [votes, setVotes] = useState({});       // { [otherId]: 1-10 }
@@ -410,7 +424,8 @@ function VotingCard({ match, pn, user, players, matches, saveMatches, refresh })
       const avg = vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : 0;
       finalStats[pid] = { goals: g, assists: a, voto: avg };
     }
-    await saveMatches(matches.map(m => m.id === match.id ? { ...m, status: "completed", stats: finalStats } : m));
+    const current = getMatches();  // FIX: legge il ref aggiornato
+    await saveMatches(current.map(m => m.id === match.id ? { ...m, status: "completed", stats: finalStats } : m));
   };
 
   if (!ready) return null;
@@ -495,7 +510,7 @@ function VotingCard({ match, pn, user, players, matches, saveMatches, refresh })
 }
 
 // ─── GAMES (Partite) ───────────────────────────────────────────────────────────
-function Games({ players, matches, user, saveMatches, refresh, setTab }) {
+function Games({ players, matches, getMatches, user, saveMatches, refresh, setTab }) {
   const [form, setForm] = useState({ date: "", time: "", cap1: "", cap2: "" });
   const [show, setShow] = useState(false);
   const pn = id => players.find(p => p.id === id)?.name || "?";
@@ -512,8 +527,9 @@ function Games({ players, matches, user, saveMatches, refresh, setTab }) {
       status: "scheduled", draftTurn: 0,
       score1: 0, score2: 0, stats: {},
     };
-    // Aggiorna stato direttamente (evita race condition con refresh)
-    const updated = [...matches, m];
+    // FIX: legge il ref aggiornato invece della prop potenzialmente stale
+    const current = getMatches();
+    const updated = [...current, m];
     await saveMatches(updated);
     setForm({ date: "", time: "", cap1: "", cap2: "" });
     setShow(false);
@@ -731,14 +747,15 @@ function Players({ players, savePlayers, user }) {
 }
 
 // ─── HISTORY ───────────────────────────────────────────────────────────────────
-function History({ players, matches, user, saveMatches, refresh }) {
+function History({ players, matches, getMatches, user, saveMatches, refresh }) {
   const [editing, setEditing] = useState(null); // match id
   const done = [...matches].filter(m=>m.status==="completed").sort((a,b)=>new Date(b.scheduledDate)-new Date(a.scheduledDate));
   const pn = id => players.find(p=>p.id===id)?.name||"?";
 
   const del = async (id) => {
     if (!window.confirm("Eliminare partita?")) return;
-    await saveMatches(matches.filter(m => m.id !== id));
+    const current = getMatches();  // FIX: legge il ref aggiornato
+    await saveMatches(current.filter(m => m.id !== id));
   };
 
   return (
@@ -784,7 +801,7 @@ function History({ players, matches, user, saveMatches, refresh }) {
               </div>
             ))}
           </div>
-          {editing===m.id && <EditMatchForm match={m} matches={matches} players={players} pn={pn} saveMatches={saveMatches} close={()=>setEditing(null)} />}
+          {editing===m.id && <EditMatchForm match={m} matches={matches} getMatches={getMatches} players={players} pn={pn} saveMatches={saveMatches} close={()=>setEditing(null)} />}
         </div>
       ))}
     </div>
@@ -792,7 +809,7 @@ function History({ players, matches, user, saveMatches, refresh }) {
 }
 
 // ─── EDIT MATCH FORM ───────────────────────────────────────────────────────────
-function EditMatchForm({ match, matches, pn, saveMatches, close }) {
+function EditMatchForm({ match, matches, getMatches, pn, saveMatches, close }) {
   const [s1, setS1] = useState(match.score1);
   const [s2, setS2] = useState(match.score2);
   const [stats, setStats] = useState(() => {
@@ -806,7 +823,8 @@ function EditMatchForm({ match, matches, pn, saveMatches, close }) {
   const setStat = (pid, field, val) => setStats(s => ({ ...s, [pid]: { ...s[pid], [field]: val } }));
 
   const save = async () => {
-    await saveMatches(matches.map(m => m.id === match.id ? { ...m, score1: s1, score2: s2, stats } : m));
+    const current = getMatches();  // FIX: legge il ref aggiornato
+    await saveMatches(current.map(m => m.id === match.id ? { ...m, score1: s1, score2: s2, stats } : m));
     close();
   };
 

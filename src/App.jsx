@@ -343,12 +343,12 @@ function DraftPanel({ match, players, pn, user, matches, getMatches, saveMatches
     <div style={{ background: "#06140a", border: "1px solid #1a3a1a", borderRadius: 12, padding: 12, marginTop: 10 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
         <div>
-          <div style={{ color: "#4fc3f7", fontWeight: 800, fontSize: 12, marginBottom: 4 }}>🔵 {pn(lm.cap1)}</div>
-          {(lm.team1||[]).map(id => <div key={id} style={{ fontSize: 12, color: "#9ab87a" }}>{pn(id)}</div>)}
+          <div style={{ color: "#4fc3f7", fontWeight: 800, fontSize: 12, marginBottom: 4 }}>🔵 {pn(lm.cap1)} <span style={{fontSize:10,color:"#7a9e5a"}}>(cap)</span></div>
+          {(lm.team1||[]).map(id => <div key={id} style={{ fontSize: 12, color: "#9ab87a" }}>{pn(id)}{id===lm.goalie1?" 🧤":id===lm.cap1?" ©":""}</div>)}
         </div>
         <div>
-          <div style={{ color: "#ff8a65", fontWeight: 800, fontSize: 12, marginBottom: 4 }}>🟠 {pn(lm.cap2)}</div>
-          {(lm.team2||[]).map(id => <div key={id} style={{ fontSize: 12, color: "#9ab87a" }}>{pn(id)}</div>)}
+          <div style={{ color: "#ff8a65", fontWeight: 800, fontSize: 12, marginBottom: 4 }}>🟠 {pn(lm.cap2)} <span style={{fontSize:10,color:"#7a9e5a"}}>(cap)</span></div>
+          {(lm.team2||[]).map(id => <div key={id} style={{ fontSize: 12, color: "#9ab87a" }}>{pn(id)}{id===lm.goalie2?" 🧤":id===lm.cap2?" ©":""}</div>)}
         </div>
       </div>
       {avail.length > 0 ? (
@@ -511,7 +511,7 @@ function VotingCard({ match, pn, user, players, matches, getMatches, saveMatches
 
 // ─── GAMES (Partite) ───────────────────────────────────────────────────────────
 function Games({ players, matches, getMatches, user, saveMatches, refresh, setTab }) {
-  const [form, setForm] = useState({ date: "", time: "", cap1: "", cap2: "" });
+  const [form, setForm] = useState({ date: "", time: "", cap1: "", cap2: "", goalie1: "", goalie2: "" });
   const [show, setShow] = useState(false);
   const pn = id => players.find(p => p.id === id)?.name || "?";
 
@@ -519,11 +519,16 @@ function Games({ players, matches, getMatches, user, saveMatches, refresh, setTa
     if (!form.date || !form.time) return alert("Inserisci data e ora!");
     if (!form.cap1 || !form.cap2) return alert("Scegli entrambi i capitani!");
     if (form.cap1 === form.cap2) return alert("I capitani devono essere diversi!");
+    if (!form.goalie1 || !form.goalie2) return alert("Scegli entrambi i portieri!");
+    if (form.goalie1 === form.goalie2) return alert("I portieri devono essere diversi!");
+    const taken = [form.cap1, form.cap2];
+    if (taken.includes(form.goalie1) || taken.includes(form.goalie2)) return alert("Un portiere non può essere anche capitano!");
     const m = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
       scheduledDate: new Date(`${form.date}T${form.time}`).toISOString(),
       cap1: form.cap1, cap2: form.cap2,
-      team1: [form.cap1], team2: [form.cap2],
+      goalie1: form.goalie1, goalie2: form.goalie2,
+      team1: [form.cap1, form.goalie1], team2: [form.cap2, form.goalie2],
       status: "scheduled", draftTurn: 0,
       score1: 0, score2: 0, stats: {},
     };
@@ -531,7 +536,7 @@ function Games({ players, matches, getMatches, user, saveMatches, refresh, setTa
     const current = getMatches();
     const updated = [...current, m];
     await saveMatches(updated);
-    setForm({ date: "", time: "", cap1: "", cap2: "" });
+    setForm({ date: "", time: "", cap1: "", cap2: "", goalie1: "", goalie2: "" });
     setShow(false);
     setTab("home");
   };
@@ -552,20 +557,32 @@ function Games({ players, matches, getMatches, user, saveMatches, refresh, setTa
           <Lbl>Data <input type="date" style={S.inp} value={form.date} onChange={e => setForm(f=>({...f,date:e.target.value}))} /></Lbl>
           <Lbl>Ora  <input type="time" style={S.inp} value={form.time} onChange={e => setForm(f=>({...f,time:e.target.value}))} /></Lbl>
           <Lbl>Capitano 🔵
-            <select style={S.inp} value={form.cap1} onChange={e => setForm(f=>({...f,cap1:e.target.value}))}>
+            <select style={S.inp} value={form.cap1} onChange={e => setForm(f=>({...f,cap1:e.target.value,goalie1:""}))}>
               <option value="">— scegli —</option>
               {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </Lbl>
+          <Lbl>Portiere 🧤🔵
+            <select style={S.inp} value={form.goalie1} onChange={e => setForm(f=>({...f,goalie1:e.target.value}))}>
+              <option value="">— scegli —</option>
+              {players.filter(p=>p.id!==form.cap1&&p.id!==form.cap2&&p.id!==form.goalie2).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Lbl>
           <Lbl>Capitano 🟠
-            <select style={S.inp} value={form.cap2} onChange={e => setForm(f=>({...f,cap2:e.target.value}))}>
+            <select style={S.inp} value={form.cap2} onChange={e => setForm(f=>({...f,cap2:e.target.value,goalie2:""}))}>
               <option value="">— scegli —</option>
               {players.filter(p=>p.id!==form.cap1).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </Lbl>
+          <Lbl>Portiere 🧤🟠
+            <select style={S.inp} value={form.goalie2} onChange={e => setForm(f=>({...f,goalie2:e.target.value}))}>
+              <option value="">— scegli —</option>
+              {players.filter(p=>p.id!==form.cap2&&p.id!==form.cap1&&p.id!==form.goalie1).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Lbl>
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button style={{ ...S.btnGreen, flex: 1 }} onClick={create}>Crea ✓</button>
-            <button style={{ ...S.btnGhost, flex: 1 }} onClick={() => { setShow(false); setForm({ date:"",time:"",cap1:"",cap2:"" }); }}>Annulla</button>
+            <button style={{ ...S.btnGhost, flex: 1 }} onClick={() => { setShow(false); setForm({ date:"",time:"",cap1:"",cap2:"",goalie1:"",goalie2:"" }); }}>Annulla</button>
           </div>
         </div>
       )}
@@ -594,18 +611,22 @@ function Games({ players, matches, getMatches, user, saveMatches, refresh, setTa
 // ─── RANK ──────────────────────────────────────────────────────────────────────
 function Rank({ players, matches }) {
   const stats = players.map(p => {
-    let g=0,a=0,vs=0,vc=0,pt=0,w=0;
+    let g=0,a=0,vs=0,vc=0,pt=0,w=0,pts=0;
     for (const m of matches) {
       if (m.status!=="completed") continue;
       const in1=(m.team1||[]).includes(p.id), in2=(m.team2||[]).includes(p.id);
       if (!in1&&!in2) continue;
-      pt++; if ((in1&&m.score1>m.score2)||(in2&&m.score2>m.score1)) w++;
+      pt++;
+      const won=(in1&&m.score1>m.score2)||(in2&&m.score2>m.score1);
+      if (won) w++;
       const s=m.stats?.[p.id]||{};
-      g+=s.goals||0; a+=s.assists||0;
-      if (s.voto){vs+=s.voto;vc++;}
+      const mg=s.goals||0, ma=s.assists||0, mv=s.voto||0;
+      g+=mg; a+=ma;
+      if (s.voto){vs+=mv;vc++;}
+      pts += mg*3 + ma + mv*0.5 + (won?2:0);
     }
     const vm=vc?vs/vc:0;
-    return { ...p, goals:g, assists:a, vm, partite:pt, wins:w, pts:g*3+a+vm*0.5+w*2 };
+    return { ...p, goals:g, assists:a, vm, partite:pt, wins:w, pts };
   }).sort((a,b)=>b.pts-a.pts);
 
   return (
@@ -787,9 +808,11 @@ function History({ players, matches, getMatches, user, saveMatches, refresh }) {
               <div key={ti}>
                 {(team||[]).map(id=>{
                   const st=m.stats?.[id]||{};
+                  const isGoalie=(ti===0&&id===m.goalie1)||(ti===1&&id===m.goalie2);
+                  const isCap=(ti===0&&id===m.cap1)||(ti===1&&id===m.cap2);
                   return (
                     <div key={id} style={{ display:"flex",justifyContent:"space-between",fontSize:12,padding:"2px 0" }}>
-                      <span>{pn(id)}</span>
+                      <span>{pn(id)}{isGoalie?" 🧤":isCap?" ©":""}</span>
                       <span style={{ display:"flex",gap:4,color:"#b5f23d",fontSize:11 }}>
                         {st.goals>0&&<span>⚽{st.goals}</span>}
                         {st.assists>0&&<span>🅰️{st.assists}</span>}
@@ -839,12 +862,12 @@ function EditMatchForm({ match, matches, getMatches, pn, saveMatches, close }) {
       </div>
       <Sec>Statistiche Giocatori</Sec>
       <div style={{ marginTop: 8 }}>
-        {[{ team: match.team1, cap: match.cap1, color: "#4fc3f7" }, { team: match.team2, cap: match.cap2, color: "#ff8a65" }].map(({ team, cap, color }) => (
+        {[{ team: match.team1, cap: match.cap1, goalie: match.goalie1, color: "#4fc3f7" }, { team: match.team2, cap: match.cap2, goalie: match.goalie2, color: "#ff8a65" }].map(({ team, cap, goalie, color }) => (
           <div key={cap} style={{ marginBottom: 10 }}>
             <div style={{ color, fontWeight: 800, fontSize: 12, marginBottom: 6 }}>{pn(cap)}'s Team</div>
             {(team||[]).map(pid => (
               <div key={pid} style={{ display:"flex",alignItems:"center",gap:10,marginBottom:8 }}>
-                <span style={{ flex:1,fontSize:13,fontWeight:700 }}>{pn(pid)}</span>
+                <span style={{ flex:1,fontSize:13,fontWeight:700 }}>{pn(pid)}{pid===goalie?" 🧤":pid===cap?" ©":""}</span>
                 {[["⚽","goals"],["🅰️","assists"],["⭐","voto"]].map(([ico,field])=>(
                   <label key={field} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:1,fontSize:12,color:"#7a9e5a" }}>
                     {ico}

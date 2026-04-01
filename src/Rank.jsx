@@ -51,7 +51,7 @@ export function Rank({ players, matches }) {
     }
 
     const vm = votoCount ? votoSum / votoCount : 0;
-    const pts = goals * 3 + assists * 1 + vm * 0.5 + wins * 2 + draws * 1;
+    const pts = history.reduce((sum, h) => sum + h.pts, 0);
 
     return { ...p, goals, assists, vm, partite, wins, draws, losses, pts, history };
   }).sort((a, b) => b.pts - a.pts);

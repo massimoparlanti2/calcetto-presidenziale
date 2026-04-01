@@ -45,6 +45,7 @@ export function Rank({ players, matches }) {
       if (draw) draws++;
       if (lost) losses++;
 
+      // 🟢 STEP 1: Calcola i punti ESATTI di questa singola partita
       const matchPts =
         mg * weights.goal +
         ma * weights.assist +
@@ -59,11 +60,13 @@ export function Rank({ players, matches }) {
         result: won ? "W" : draw ? "D" : "L",
         score: `${m.score1}:${m.score2}`,
         cap1: m.cap1, cap2: m.cap2,
-        pts: matchPts,
+        pts: matchPts, // Salva il punteggio calcolato nello storico
       });
     }
 
     const vm = votoCount ? votoSum / votoCount : 0;
+    
+    // 🟢 STEP 2: Il PTS totale è la SOMMA di tutti i matchPts dello storico
     const pts = history.reduce((sum, h) => sum + h.pts, 0);
 
     return { ...p, goals, assists, vm, partite, wins, draws, losses, pts, history };

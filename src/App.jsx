@@ -763,6 +763,106 @@ function Players({ players, savePlayers, user }) {
         }
         <div style={{ color: "#3a6a2a", fontSize: 11, marginTop: 6 }}>PIN default: 1234</div>
       </div>
+      <BackupPanel players={players} savePlayers={savePlayers} />
+    </div>
+  );
+}
+
+// ─── BACKUP PANEL ──────────────────────────────────────────────────────────────
+function BackupPanel({ players, savePlayers }) {
+  const [preview, setPreview] = useState(null); // { players, matches } parsed from file
+  const [importing, setImporting] = useState(false);
+  const [msg, setMsg] = useState("");
+  const fileRef = useRef(null);
+
+  // ── EXPORT ──
+  const doExport = async () => {
+    const [p, m] = await Promise.all([
+      DB.get("cp_players", []),
+      DB.get("cp_matches", []),
+    ]);
+    const blob = new Blob(
+      [JSON.stringify({ players: p, matches: m, exportedAt: new Date().toISOString() }, null, 2)],
+      { type: "application/json" }
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `calcetto_backup_${new Date().toLocaleDateString("it-IT").replace(/\//g,"-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── FILE SELECTED → parse & preview ──
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!Array.isArray(data.players) || !Array.isArray(data.matches))
+          return alert("File non valido: mancano players o matches.");
+        setPreview(data);
+        setMsg("");
+      } catch {
+        alert("Errore nel parsing del JSON.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  // ── CONFIRM IMPORT ──
+  const doImport = async () => {
+    if (!preview) return;
+    setImporting(true);
+    try {
+      await DB.set("cp_players", preview.players);
+      await DB.set("cp_matches", preview.matches);
+      savePlayers(preview.players); // aggiorna lo stato locale
+      setMsg(`✅ Importati ${preview.players.length} giocatori e ${preview.matches.length} partite. Ricarica la pagina.`);
+      setPreview(null);
+    } catch (err) {
+      setMsg("❌ Errore durante l'importazione: " + err.message);
+    }
+    setImporting(false);
+  };
+
+  return (
+    <div style={{ marginTop: 16, background: "#0a100a", border: "1px solid #2d5a1e", borderRadius: 12, padding: 14 }}>
+      <div style={{ fontWeight: 800, color: "#b5f23d", fontSize: 13, marginBottom: 10 }}>💾 Backup & Ripristino</div>
+
+      {/* EXPORT */}
+      <button style={{ ...S.btnGreen, width: "100%", marginBottom: 10, justifyContent: "center" }} onClick={doExport}>
+        ⬇️ Scarica Backup JSON
+      </button>
+
+      {/* IMPORT */}
+      <button style={{ ...S.btnGhost, width: "100%", justifyContent: "center" }}
+        onClick={() => fileRef.current?.click()}>
+        📂 Carica Backup JSON
+      </button>
+      <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onFile} />
+
+      {/* PREVIEW */}
+      {preview && (
+        <div style={{ marginTop: 12, background: "#0f220f", border: "1px solid #ffd54f44", borderRadius: 10, padding: 12 }}>
+          <div style={{ color: "#ffd54f", fontWeight: 800, fontSize: 12, marginBottom: 6 }}>⚠️ Anteprima — confermi il ripristino?</div>
+          <div style={{ fontSize: 12, color: "#9ab87a", marginBottom: 2 }}>👥 Giocatori: <strong style={{color:"#e8f5e2"}}>{preview.players.length}</strong></div>
+          <div style={{ fontSize: 12, color: "#9ab87a", marginBottom: 2 }}>📅 Partite: <strong style={{color:"#e8f5e2"}}>{preview.matches.length}</strong> ({preview.matches.filter(m=>m.status==="completed").length} completate)</div>
+          {preview.exportedAt && <div style={{ fontSize: 11, color: "#4a7a3a", marginBottom: 10 }}>Esportato il {new Date(preview.exportedAt).toLocaleString("it-IT")}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={{ ...S.btnGreen, flex: 1, justifyContent: "center", fontSize: 13 }} onClick={doImport} disabled={importing}>
+              {importing ? "Caricamento…" : "✅ Conferma Ripristino"}
+            </button>
+            <button style={{ ...S.btnGhost, flex: 1, justifyContent: "center", fontSize: 13 }} onClick={() => setPreview(null)}>Annulla</button>
+          </div>
+        </div>
+      )}
+
+      {msg && <div style={{ marginTop: 10, fontSize: 12, color: msg.startsWith("✅") ? "#b5f23d" : "#ff6b6b" }}>{msg}</div>}
+      <div style={{ color: "#3a6a2a", fontSize: 11, marginTop: 8 }}>Il backup include giocatori, partite e statistiche.</div>
     </div>
   );
 }

@@ -8,9 +8,9 @@ export function Rank({ players, matches }) {
   const [expanded, setExpanded] = useState(null);
   const [weights, setWeights] = useState(DEFAULT_WEIGHTS);
 
-  useEffect(() => {
-    DB.get("cp_weights", DEFAULT_WEIGHTS).then(w => setWeights({ ...DEFAULT_WEIGHTS, ...w }));
-  }, []);
+  //useEffect(() => {
+    //DB.get("cp_weights", DEFAULT_WEIGHTS).then(w => setWeights({ ...DEFAULT_WEIGHTS, ...w }));
+  //}, []);
 
   const stats = players.map(p => {
     let goals = 0, assists = 0, votoSum = 0, votoCount = 0;
@@ -74,7 +74,7 @@ export function Rank({ players, matches }) {
 
   const pn = id => players.find(p => p.id === id)?.name || "?";
   const resultColor = r => r === "W" ? "#b5f23d" : r === "D" ? "#ffd54f" : "#ff6b6b";
-
+  console.log("🔍 DEBUG MIRCO:", stats.find(p => p.name === "Mirco"));
   return (
     <div style={S.page}>
       <h2 style={S.pageTitle}>🏆 Classifica</h2>
